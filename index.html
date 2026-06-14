@@ -1,0 +1,791 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SiteCheck</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg: #f5f6f8;
+      --surface: #ffffff;
+      --border: #e2e5ea;
+      --text: #1a1d23;
+      --muted: #6b7280;
+      --accent: #2563eb;
+      --accent-hover: #1d4ed8;
+      --danger: #dc2626;
+      --success: #16a34a;
+      --warning: #d97706;
+      --radius: 8px;
+      --shadow: 0 1px 3px rgba(0,0,0,0.08), 0 1px 2px rgba(0,0,0,0.04);
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      font-size: 15px;
+      line-height: 1.5;
+    }
+
+    /* ---- Layout ---- */
+    #app { min-height: 100vh; }
+
+    .topbar {
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      padding: 0 24px;
+      height: 56px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      position: sticky;
+      top: 0;
+      z-index: 100;
+    }
+    .topbar-brand { font-weight: 700; font-size: 18px; letter-spacing: -0.3px; color: var(--accent); }
+    .topbar-right { display: flex; align-items: center; gap: 12px; }
+    .topbar-user { font-size: 13px; color: var(--muted); }
+
+    .main { max-width: 860px; margin: 0 auto; padding: 32px 20px; }
+
+    /* ---- Cards ---- */
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      padding: 24px;
+      margin-bottom: 16px;
+    }
+    .card-title { font-weight: 600; font-size: 16px; margin-bottom: 16px; }
+
+    /* ---- Buttons ---- */
+    .btn {
+      display: inline-flex; align-items: center; gap: 6px;
+      padding: 8px 16px; border-radius: 6px; border: none;
+      font-size: 14px; font-weight: 500; cursor: pointer;
+      transition: background 0.15s, opacity 0.15s;
+    }
+    .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+    .btn-primary { background: var(--accent); color: #fff; }
+    .btn-primary:hover:not(:disabled) { background: var(--accent-hover); }
+    .btn-ghost { background: transparent; color: var(--text); border: 1px solid var(--border); }
+    .btn-ghost:hover:not(:disabled) { background: var(--bg); }
+    .btn-danger { background: var(--danger); color: #fff; }
+    .btn-danger:hover:not(:disabled) { background: #b91c1c; }
+    .btn-sm { padding: 5px 10px; font-size: 13px; }
+
+    /* ---- Forms ---- */
+    .field { margin-bottom: 16px; }
+    .field label { display: block; font-size: 13px; font-weight: 500; margin-bottom: 6px; color: var(--muted); }
+    .field input, .field select, .field textarea {
+      width: 100%; padding: 9px 12px; border: 1px solid var(--border);
+      border-radius: 6px; font-size: 14px; background: var(--surface);
+      color: var(--text); outline: none; transition: border-color 0.15s;
+    }
+    .field input:focus, .field select:focus, .field textarea:focus { border-color: var(--accent); }
+    .field textarea { resize: vertical; min-height: 80px; }
+
+    /* ---- Login ---- */
+    #login-screen {
+      min-height: 100vh; display: flex; align-items: center; justify-content: center;
+      background: linear-gradient(135deg, #eff6ff 0%, #f5f6f8 100%);
+    }
+    .login-box { width: 100%; max-width: 380px; }
+    .login-logo { text-align: center; margin-bottom: 32px; }
+    .login-logo h1 { font-size: 28px; font-weight: 800; color: var(--accent); letter-spacing: -0.5px; }
+    .login-logo p { font-size: 13px; color: var(--muted); margin-top: 4px; }
+
+    /* ---- Tabs ---- */
+    .tabs { display: flex; gap: 4px; margin-bottom: 24px; border-bottom: 1px solid var(--border); }
+    .tab {
+      padding: 10px 16px; font-size: 14px; font-weight: 500; cursor: pointer;
+      border: none; background: none; color: var(--muted);
+      border-bottom: 2px solid transparent; margin-bottom: -1px;
+    }
+    .tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+
+    /* ---- Facility Cards ---- */
+    .facility-card {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: var(--radius); padding: 20px; margin-bottom: 12px;
+      cursor: pointer; transition: border-color 0.15s, box-shadow 0.15s;
+    }
+    .facility-card:hover { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(37,99,235,0.08); }
+    .facility-name { font-weight: 600; font-size: 16px; }
+    .facility-addr { font-size: 13px; color: var(--muted); margin-top: 2px; }
+    .facility-meta { display: flex; gap: 12px; margin-top: 12px; flex-wrap: wrap; }
+
+    /* ---- Badges ---- */
+    .badge {
+      display: inline-flex; align-items: center; gap: 4px;
+      padding: 3px 8px; border-radius: 99px; font-size: 12px; font-weight: 500;
+    }
+    .badge-blue { background: #dbeafe; color: #1d4ed8; }
+    .badge-red { background: #fee2e2; color: #b91c1c; }
+    .badge-green { background: #dcfce7; color: #15803d; }
+    .badge-yellow { background: #fef3c7; color: #92400e; }
+    .badge-gray { background: #f3f4f6; color: #4b5563; }
+
+    /* ---- Lists ---- */
+    .item-list { list-style: none; }
+    .item-list li {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 10px 0; border-bottom: 1px solid var(--border); gap: 8px;
+    }
+    .item-list li:last-child { border-bottom: none; }
+    .item-unit { font-weight: 600; font-size: 13px; }
+    .item-note { font-size: 13px; color: var(--muted); }
+
+    /* ---- Section headers ---- */
+    .section-head {
+      display: flex; align-items: center; justify-content: space-between;
+      margin-bottom: 12px;
+    }
+    .section-head h3 { font-size: 14px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; }
+
+    /* ---- Alert ---- */
+    .alert {
+      padding: 12px 16px; border-radius: 6px; font-size: 14px; margin-bottom: 16px;
+    }
+    .alert-error { background: #fee2e2; color: #b91c1c; }
+    .alert-success { background: #dcfce7; color: #15803d; }
+
+    /* ---- Page header ---- */
+    .page-header { display: flex; align-items: center; gap: 12px; margin-bottom: 24px; }
+    .back-btn { background: none; border: none; cursor: pointer; color: var(--muted); font-size: 20px; padding: 4px; }
+    .back-btn:hover { color: var(--text); }
+    .page-title { font-size: 22px; font-weight: 700; letter-spacing: -0.3px; }
+    .page-subtitle { font-size: 13px; color: var(--muted); }
+
+    /* ---- Table ---- */
+    .table-wrap { overflow-x: auto; }
+    table { width: 100%; border-collapse: collapse; font-size: 14px; }
+    th { text-align: left; padding: 10px 12px; font-size: 12px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.4px; border-bottom: 1px solid var(--border); }
+    td { padding: 12px; border-bottom: 1px solid var(--border); vertical-align: middle; }
+    tr:last-child td { border-bottom: none; }
+
+    /* ---- Step wizard ---- */
+    .steps { display: flex; gap: 0; margin-bottom: 28px; }
+    .step {
+      flex: 1; text-align: center; font-size: 12px; font-weight: 500;
+      padding: 8px 4px; border-bottom: 2px solid var(--border); color: var(--muted);
+    }
+    .step.active { border-bottom-color: var(--accent); color: var(--accent); }
+    .step.done { border-bottom-color: var(--success); color: var(--success); }
+
+    /* ---- Modal ---- */
+    .modal-backdrop {
+      position: fixed; inset: 0; background: rgba(0,0,0,0.4);
+      display: flex; align-items: center; justify-content: center; z-index: 200; padding: 20px;
+    }
+    .modal {
+      background: var(--surface); border-radius: var(--radius); padding: 28px;
+      width: 100%; max-width: 480px; box-shadow: 0 20px 60px rgba(0,0,0,0.2);
+      max-height: 90vh; overflow-y: auto;
+    }
+    .modal-title { font-size: 18px; font-weight: 700; margin-bottom: 20px; }
+    .modal-footer { display: flex; justify-content: flex-end; gap: 10px; margin-top: 20px; }
+
+    .hidden { display: none !important; }
+    .flex { display: flex; }
+    .gap-2 { gap: 8px; }
+    .mt-2 { margin-top: 8px; }
+    .mt-4 { margin-top: 16px; }
+    .text-muted { color: var(--muted); font-size: 13px; }
+    .text-right { text-align: right; }
+  </style>
+</head>
+<body>
+<div id="app"></div>
+
+<script>
+// ── State ────────────────────────────────────────────────
+let state = {
+  token: localStorage.getItem('sc_token') || null,
+  user: JSON.parse(localStorage.getItem('sc_user') || 'null'),
+  view: 'home',       // home | facility | report | admin-users | admin-facility
+  facilities: [],
+  currentFacility: null,
+  users: [],
+  submissions: [],
+  reportStep: 0,
+  reportData: {},
+  modal: null,        // null | 'add-facility' | 'add-user' | 'edit-user' | 'edit-facility'
+  modalData: {},
+  alert: null,
+  loading: false,
+};
+
+// ── API ──────────────────────────────────────────────────
+const API = async (method, path, body) => {
+  const res = await fetch('/api' + path, {
+    method,
+    headers: { 'Content-Type': 'application/json', ...(state.token ? { Authorization: 'Bearer ' + state.token } : {}) },
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || 'Something went wrong');
+  return data;
+};
+
+// ── Helpers ──────────────────────────────────────────────
+const isAdmin = () => state.user && (state.user.role === 'admin' || state.user.role === 'superadmin');
+const isSuperAdmin = () => state.user && state.user.role === 'superadmin';
+const fmt = (ts) => ts ? new Date(ts).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' }) : '—';
+
+function showAlert(msg, type = 'error') {
+  state.alert = { msg, type };
+  render();
+  setTimeout(() => { state.alert = null; render(); }, 4000);
+}
+
+// ── Render engine ────────────────────────────────────────
+function render() {
+  const app = document.getElementById('app');
+  if (!state.token || !state.user) { app.innerHTML = loginHTML(); bindLogin(); return; }
+  app.innerHTML = `
+    ${topbarHTML()}
+    <div class="main">${mainHTML()}</div>
+    ${state.modal ? modalHTML() : ''}
+  `;
+  bindEvents();
+}
+
+// ── Login ────────────────────────────────────────────────
+function loginHTML() {
+  return `
+    <div id="login-screen">
+      <div class="login-box">
+        <div class="login-logo"><h1>SiteCheck</h1><p>Facility inspection management</p></div>
+        <div class="card">
+          ${state.alert ? `<div class="alert alert-${state.alert.type}">${state.alert.msg}</div>` : ''}
+          <div class="field"><label>Username</label><input id="l-user" type="text" placeholder="Enter username" autocomplete="username" /></div>
+          <div class="field"><label>Password</label><input id="l-pass" type="password" placeholder="Enter password" autocomplete="current-password" /></div>
+          <button class="btn btn-primary" style="width:100%" id="l-btn">Sign in</button>
+        </div>
+      </div>
+    </div>`;
+}
+
+function bindLogin() {
+  document.getElementById('l-btn').onclick = doLogin;
+  document.getElementById('l-pass').onkeydown = (e) => { if (e.key === 'Enter') doLogin(); };
+}
+
+async function doLogin() {
+  const username = document.getElementById('l-user').value.trim();
+  const password = document.getElementById('l-pass').value;
+  if (!username || !password) return showAlert('Enter your username and password.');
+  try {
+    const data = await API('POST', '/login', { username, password });
+    state.token = data.token; state.user = data.user;
+    localStorage.setItem('sc_token', data.token);
+    localStorage.setItem('sc_user', JSON.stringify(data.user));
+    await loadFacilities();
+    render();
+  } catch (e) { showAlert(e.message); }
+}
+
+function doLogout() {
+  state.token = null; state.user = null; state.view = 'home';
+  localStorage.removeItem('sc_token'); localStorage.removeItem('sc_user');
+  render();
+}
+
+// ── Top bar ──────────────────────────────────────────────
+function topbarHTML() {
+  const tabs = isAdmin()
+    ? `<button class="tab ${state.view === 'home' ? 'active' : ''}" data-nav="home">Facilities</button>
+       <button class="tab ${state.view === 'admin-users' ? 'active' : ''}" data-nav="admin-users">Users</button>`
+    : '';
+  return `
+    <div class="topbar">
+      <div style="display:flex;align-items:center;gap:20px">
+        <span class="topbar-brand">SiteCheck</span>
+        <div class="tabs" style="margin:0;border:none">${tabs}</div>
+      </div>
+      <div class="topbar-right">
+        <span class="topbar-user">${state.user.name} · <span style="text-transform:capitalize">${state.user.role}</span></span>
+        <button class="btn btn-ghost btn-sm" id="logout-btn">Sign out</button>
+      </div>
+    </div>`;
+}
+
+// ── Main content ─────────────────────────────────────────
+function mainHTML() {
+  const alert = state.alert ? `<div class="alert alert-${state.alert.type}">${state.alert.msg}</div>` : '';
+  if (state.view === 'home') return alert + facilitiesHTML();
+  if (state.view === 'facility') return alert + facilityDetailHTML();
+  if (state.view === 'report') return alert + reportHTML();
+  if (state.view === 'admin-users') return alert + usersHTML();
+  return '';
+}
+
+// ── Facilities list ──────────────────────────────────────
+async function loadFacilities() {
+  state.facilities = await API('GET', '/facilities');
+}
+
+function facilitiesHTML() {
+  const facs = state.facilities;
+  const cfg = (f) => f.config || {};
+  return `
+    <div class="section-head">
+      <h2 style="font-size:20px;font-weight:700">Facilities</h2>
+      ${isAdmin() ? `<button class="btn btn-primary btn-sm" id="add-fac-btn">+ Add facility</button>` : ''}
+    </div>
+    ${facs.length === 0 ? `<div class="card text-muted" style="text-align:center;padding:40px">No facilities assigned.</div>` : ''}
+    ${facs.map(f => {
+      const c = cfg(f);
+      const lockouts = (c.lockoutAdd||[]).length + (c.lockoutRemove||[]).length;
+      const maintenance = (c.maintenance||[]).length;
+      const tasks = (c.weeklyTasks||[]).length;
+      return `
+        <div class="facility-card" data-fac="${f.id}">
+          <div class="facility-name">${f.name}</div>
+          <div class="facility-addr">${f.address}</div>
+          <div class="facility-meta">
+            ${tasks ? `<span class="badge badge-blue">${tasks} task${tasks>1?'s':''}</span>` : ''}
+            ${lockouts ? `<span class="badge badge-red">${lockouts} lockout change${lockouts>1?'s':''}</span>` : ''}
+            ${maintenance ? `<span class="badge badge-yellow">${maintenance} maintenance</span>` : ''}
+            ${f.checkInDay ? `<span class="badge badge-gray">Check-in: ${f.checkInDay}</span>` : ''}
+            ${c.climateControlled ? `<span class="badge badge-green">Climate controlled</span>` : ''}
+          </div>
+        </div>`;
+    }).join('')}`;
+}
+
+// ── Facility detail ──────────────────────────────────────
+function facilityDetailHTML() {
+  const f = state.currentFacility;
+  if (!f) return '';
+  const c = f.config || {};
+
+  const section = (title, items, color, noteKey) => {
+    if (!items || items.length === 0) return '';
+    return `
+      <div class="card">
+        <div class="card-title">${title}</div>
+        <ul class="item-list">
+          ${items.map(i => `
+            <li>
+              <div>
+                ${i.unit ? `<span class="item-unit">${i.unit}</span>` : ''}
+                ${i.text ? `<span class="item-note">${i.text}</span>` : ''}
+                ${i[noteKey||'note'] && i.unit ? `<span class="item-note" style="display:block"> ${i[noteKey||'note']}</span>` : ''}
+              </div>
+              <span class="badge badge-${color}">${title.split(' ')[0]}</span>
+            </li>`).join('')}
+        </ul>
+      </div>`;
+  };
+
+  return `
+    <div class="page-header">
+      <button class="back-btn" id="back-btn">←</button>
+      <div>
+        <div class="page-title">${f.name}</div>
+        <div class="page-subtitle">${f.address}</div>
+      </div>
+      ${isAdmin() ? `<button class="btn btn-ghost btn-sm" style="margin-left:auto" id="edit-fac-btn">Edit</button>` : ''}
+    </div>
+    ${section('Lockout Add', c.lockoutAdd, 'red')}
+    ${section('Lockout Remove', c.lockoutRemove, 'green')}
+    ${section('Lockout Keep', c.lockoutKeep, 'yellow')}
+    ${section('Maintenance', c.maintenance, 'yellow', 'note')}
+    ${section('Vacated', c.vacated, 'gray')}
+    ${section('Vacant', c.vacant, 'gray')}
+    ${section('Auction', c.auction, 'blue')}
+    ${(c.weeklyTasks||[]).length ? `
+      <div class="card">
+        <div class="card-title">Weekly Tasks</div>
+        <ul class="item-list">
+          ${c.weeklyTasks.map(t => `<li><span>${t.text}</span></li>`).join('')}
+        </ul>
+      </div>` : ''}
+    ${!isAdmin() ? `
+      <button class="btn btn-primary" style="width:100%;margin-top:8px" id="start-report-btn">Start check-in report</button>` : ''}
+    ${isAdmin() ? submissionsHTML() : ''}`;
+}
+
+function submissionsHTML() {
+  const subs = state.submissions;
+  return `
+    <div class="card" style="margin-top:8px">
+      <div class="section-head"><h3>Submissions</h3></div>
+      ${subs.length === 0 ? `<p class="text-muted">No submissions yet.</p>` : `
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Worker</th><th>Submitted</th><th>Status</th><th></th></tr></thead>
+            <tbody>
+              ${subs.map(s => `
+                <tr>
+                  <td>${s.workerName}</td>
+                  <td>${fmt(s.submittedAt)}</td>
+                  <td>${s.reviewed ? `<span class="badge badge-green">Reviewed</span>` : `<span class="badge badge-yellow">Pending</span>`}</td>
+                  <td>${!s.reviewed ? `<button class="btn btn-ghost btn-sm" data-review="${s.id}">Mark reviewed</button>` : ''}</td>
+                </tr>`).join('')}
+            </tbody>
+          </table>
+        </div>`}
+    </div>`;
+}
+
+// ── Report wizard ────────────────────────────────────────
+const REPORT_STEPS = ['Arrival', 'Lockouts', 'Maintenance', 'Tasks', 'Notes', 'Submit'];
+
+function reportHTML() {
+  const step = state.reportStep;
+  const d = state.reportData;
+  const f = state.currentFacility;
+  const c = f.config || {};
+
+  let content = '';
+  if (step === 0) content = `
+    <div class="field"><label>Arrival time</label><input id="r-arrival" type="time" value="${d.arrival||''}" /></div>
+    <div class="field"><label>Gate code working?</label>
+      <select id="r-gate"><option value="">Select…</option><option ${d.gate==='yes'?'selected':''}>yes</option><option ${d.gate==='no'?'selected':''}>no</option></select>
+    </div>
+    <div class="field"><label>Overall site condition</label>
+      <select id="r-cond"><option value="">Select…</option><option ${d.condition==='good'?'selected':''}>good</option><option ${d.condition==='fair'?'selected':''}>fair</option><option ${d.condition==='poor'?'selected':''}>poor</option></select>
+    </div>`;
+
+  if (step === 1) {
+    const adds = c.lockoutAdd || []; const rems = c.lockoutRemove || [];
+    content = `
+      ${adds.length ? `<p class="text-muted" style="margin-bottom:12px">Units to lock out: ${adds.map(u=>u.unit).join(', ')}</p>` : '<p class="text-muted">No lockout adds.</p>'}
+      ${rems.length ? `<p class="text-muted" style="margin-bottom:12px">Units to unlock: ${rems.map(u=>u.unit).join(', ')}</p>` : '<p class="text-muted">No lockout removals.</p>'}
+      <div class="field"><label>Lockout notes (optional)</label><textarea id="r-lockout-notes">${d.lockoutNotes||''}</textarea></div>
+      <div class="field"><label>All lockout changes completed?</label>
+        <select id="r-lockout-done"><option value="">Select…</option><option ${d.lockoutDone==='yes'?'selected':''}>yes</option><option ${d.lockoutDone==='partial'?'selected':''}>partial</option><option ${d.lockoutDone==='no'?'selected':''}>no</option></select>
+      </div>`;
+  }
+
+  if (step === 2) {
+    const maint = c.maintenance || [];
+    content = `
+      ${maint.length ? maint.map(m => `
+        <div class="card" style="margin-bottom:12px;padding:16px">
+          <div class="item-unit">${m.unit}</div>
+          <div class="item-note">${m.note}</div>
+          <div class="field mt-2"><label>Status update</label><input type="text" class="r-maint-note" data-unit="${m.unit}" value="${(d.maintenanceNotes||{})[m.unit]||''}" placeholder="What did you find?" /></div>
+        </div>`).join('') : '<p class="text-muted">No maintenance items.</p>'}`;
+  }
+
+  if (step === 3) {
+    const tasks = c.weeklyTasks || [];
+    content = tasks.length ? tasks.map((t,i) => `
+      <div style="display:flex;align-items:flex-start;gap:10px;padding:10px 0;border-bottom:1px solid var(--border)">
+        <input type="checkbox" id="task-${i}" ${(d.tasksCompleted||[]).includes(t.id)?'checked':''} data-task="${t.id}" style="margin-top:3px;width:16px;height:16px;cursor:pointer" />
+        <label for="task-${i}" style="cursor:pointer">${t.text}</label>
+      </div>`).join('') : '<p class="text-muted">No weekly tasks.</p>';
+  }
+
+  if (step === 4) content = `
+    <div class="field"><label>Additional notes</label><textarea id="r-notes" rows="5" placeholder="Anything else to report…">${d.notes||''}</textarea></div>`;
+
+  if (step === 5) content = `
+    <div class="alert alert-success">Review your report before submitting.</div>
+    <ul class="item-list">
+      <li><span class="item-note">Arrival</span><strong>${d.arrival||'—'}</strong></li>
+      <li><span class="item-note">Gate working</span><strong>${d.gate||'—'}</strong></li>
+      <li><span class="item-note">Site condition</span><strong>${d.condition||'—'}</strong></li>
+      <li><span class="item-note">Lockouts done</span><strong>${d.lockoutDone||'—'}</strong></li>
+      <li><span class="item-note">Notes</span><strong>${d.notes||'—'}</strong></li>
+    </ul>`;
+
+  return `
+    <div class="page-header">
+      <button class="back-btn" id="back-btn">←</button>
+      <div>
+        <div class="page-title">Check-in Report</div>
+        <div class="page-subtitle">${f.name}</div>
+      </div>
+    </div>
+    <div class="steps">
+      ${REPORT_STEPS.map((s,i) => `<div class="step ${i===step?'active':i<step?'done':''}">${s}</div>`).join('')}
+    </div>
+    <div class="card">
+      <div class="card-title">${REPORT_STEPS[step]}</div>
+      ${content}
+      <div style="display:flex;justify-content:space-between;margin-top:20px">
+        ${step > 0 ? `<button class="btn btn-ghost" id="step-back">← Back</button>` : '<span></span>'}
+        ${step < REPORT_STEPS.length - 1
+          ? `<button class="btn btn-primary" id="step-next">Next →</button>`
+          : `<button class="btn btn-primary" id="submit-report-btn">Submit report</button>`}
+      </div>
+    </div>`;
+}
+
+function collectStepData() {
+  const step = state.reportStep;
+  const d = state.reportData;
+  if (step === 0) {
+    d.arrival = document.getElementById('r-arrival')?.value;
+    d.gate = document.getElementById('r-gate')?.value;
+    d.condition = document.getElementById('r-cond')?.value;
+  }
+  if (step === 1) {
+    d.lockoutNotes = document.getElementById('r-lockout-notes')?.value;
+    d.lockoutDone = document.getElementById('r-lockout-done')?.value;
+  }
+  if (step === 2) {
+    const notes = {};
+    document.querySelectorAll('.r-maint-note').forEach(el => { notes[el.dataset.unit] = el.value; });
+    d.maintenanceNotes = notes;
+  }
+  if (step === 3) {
+    const checked = [];
+    document.querySelectorAll('[data-task]').forEach(el => { if (el.checked) checked.push(el.dataset.task); });
+    d.tasksCompleted = checked;
+  }
+  if (step === 4) { d.notes = document.getElementById('r-notes')?.value; }
+}
+
+// ── Users admin ──────────────────────────────────────────
+async function loadUsers() { state.users = await API('GET', '/users'); }
+
+function usersHTML() {
+  const users = state.users;
+  return `
+    <div class="section-head">
+      <h2 style="font-size:20px;font-weight:700">Users</h2>
+      <button class="btn btn-primary btn-sm" id="add-user-btn">+ Add user</button>
+    </div>
+    <div class="card" style="padding:0;overflow:hidden">
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Name</th><th>Username</th><th>Role</th><th>Assignments</th><th></th></tr></thead>
+          <tbody>
+            ${users.map(u => `
+              <tr>
+                <td>${u.name}</td>
+                <td><code>${u.username}</code></td>
+                <td><span class="badge badge-${u.role==='superadmin'?'red':u.role==='admin'?'blue':'gray'}">${u.role}</span></td>
+                <td>${u.role==='worker' ? (u.assignments||[]).length + ' facility' + ((u.assignments||[]).length!==1?'s':'') : '—'}</td>
+                <td>
+                  <div class="flex gap-2">
+                    <button class="btn btn-ghost btn-sm" data-edit-user="${u.id}">Edit</button>
+                    ${u.id !== state.user.id ? `<button class="btn btn-danger btn-sm" data-del-user="${u.id}">Delete</button>` : ''}
+                  </div>
+                </td>
+              </tr>`).join('')}
+          </tbody>
+        </table>
+      </div>
+    </div>`;
+}
+
+// ── Modals ───────────────────────────────────────────────
+function modalHTML() {
+  const m = state.modal;
+  const d = state.modalData;
+
+  if (m === 'add-facility' || m === 'edit-facility') {
+    return `<div class="modal-backdrop" id="modal-backdrop">
+      <div class="modal">
+        <div class="modal-title">${m==='add-facility'?'Add facility':'Edit facility'}</div>
+        <div class="field"><label>Name</label><input id="m-name" value="${d.name||''}" placeholder="Facility name" /></div>
+        <div class="field"><label>Address</label><input id="m-addr" value="${d.address||''}" placeholder="Street address" /></div>
+        <div class="modal-footer">
+          <button class="btn btn-ghost" id="modal-cancel">Cancel</button>
+          <button class="btn btn-primary" id="modal-save">Save</button>
+        </div>
+      </div>
+    </div>`;
+  }
+
+  if (m === 'add-user' || m === 'edit-user') {
+    const facs = state.facilities;
+    const assignments = d.assignments || [];
+    return `<div class="modal-backdrop" id="modal-backdrop">
+      <div class="modal">
+        <div class="modal-title">${m==='add-user'?'Add user':'Edit user'}</div>
+        <div class="field"><label>Full name</label><input id="m-name" value="${d.name||''}" placeholder="Name" /></div>
+        <div class="field"><label>Username</label><input id="m-username" value="${d.username||''}" placeholder="username" /></div>
+        <div class="field"><label>Password ${m==='edit-user'?'(leave blank to keep)':''}</label><input id="m-password" type="password" placeholder="Password" /></div>
+        <div class="field"><label>Role</label>
+          <select id="m-role">
+            <option value="worker" ${d.role==='worker'?'selected':''}>Worker</option>
+            <option value="admin" ${d.role==='admin'?'selected':''}>Admin</option>
+            ${isSuperAdmin() ? `<option value="superadmin" ${d.role==='superadmin'?'selected':''}>Super admin</option>` : ''}
+          </select>
+        </div>
+        ${d.role === 'worker' || m==='add-user' ? `
+          <div class="field"><label>Facility assignments</label>
+            ${facs.map(f => `
+              <label style="display:flex;align-items:center;gap:8px;padding:6px 0;cursor:pointer">
+                <input type="checkbox" class="m-assign" data-fac="${f.id}" ${assignments.some(a=>a.facilityId===f.id)?'checked':''} />
+                ${f.name}
+              </label>`).join('')}
+          </div>` : ''}
+        <div class="modal-footer">
+          <button class="btn btn-ghost" id="modal-cancel">Cancel</button>
+          <button class="btn btn-primary" id="modal-save">Save</button>
+        </div>
+      </div>
+    </div>`;
+  }
+
+  return '';
+}
+
+// ── Event binding ────────────────────────────────────────
+function bindEvents() {
+  document.getElementById('logout-btn')?.addEventListener('click', doLogout);
+
+  // Nav tabs
+  document.querySelectorAll('[data-nav]').forEach(el => {
+    el.addEventListener('click', async () => {
+      state.view = el.dataset.nav;
+      if (state.view === 'admin-users') await loadUsers();
+      if (state.view === 'home') await loadFacilities();
+      render();
+    });
+  });
+
+  // Facility cards
+  document.querySelectorAll('[data-fac]').forEach(el => {
+    el.addEventListener('click', async () => {
+      const fac = state.facilities.find(f => f.id === el.dataset.fac);
+      state.currentFacility = fac;
+      state.view = 'facility';
+      if (isAdmin()) state.submissions = await API('GET', `/facilities/${fac.id}/submissions`);
+      render();
+    });
+  });
+
+  // Back button
+  document.getElementById('back-btn')?.addEventListener('click', () => {
+    if (state.view === 'report') { state.view = 'facility'; }
+    else { state.view = 'home'; state.currentFacility = null; }
+    render();
+  });
+
+  // Start report
+  document.getElementById('start-report-btn')?.addEventListener('click', () => {
+    state.view = 'report'; state.reportStep = 0; state.reportData = {}; render();
+  });
+
+  // Report steps
+  document.getElementById('step-next')?.addEventListener('click', () => {
+    collectStepData(); state.reportStep++; render();
+  });
+  document.getElementById('step-back')?.addEventListener('click', () => {
+    collectStepData(); state.reportStep--; render();
+  });
+  document.getElementById('submit-report-btn')?.addEventListener('click', async () => {
+    try {
+      await API('POST', '/submissions', { facilityId: state.currentFacility.id, data: state.reportData });
+      showAlert('Report submitted!', 'success');
+      state.view = 'facility'; state.reportStep = 0; state.reportData = {};
+    } catch(e) { showAlert(e.message); }
+  });
+
+  // Add facility
+  document.getElementById('add-fac-btn')?.addEventListener('click', () => {
+    state.modal = 'add-facility'; state.modalData = {}; render(); bindModal();
+  });
+
+  // Edit facility
+  document.getElementById('edit-fac-btn')?.addEventListener('click', () => {
+    state.modal = 'edit-facility'; state.modalData = { ...state.currentFacility }; render(); bindModal();
+  });
+
+  // Add user
+  document.getElementById('add-user-btn')?.addEventListener('click', () => {
+    state.modal = 'add-user'; state.modalData = { role: 'worker' }; render(); bindModal();
+  });
+
+  // Edit user
+  document.querySelectorAll('[data-edit-user]').forEach(el => {
+    el.addEventListener('click', () => {
+      const u = state.users.find(x => x.id === el.dataset.editUser);
+      state.modal = 'edit-user'; state.modalData = { ...u }; render(); bindModal();
+    });
+  });
+
+  // Delete user
+  document.querySelectorAll('[data-del-user]').forEach(el => {
+    el.addEventListener('click', async () => {
+      if (!confirm('Delete this user?')) return;
+      try { await API('DELETE', `/users/${el.dataset.delUser}`); await loadUsers(); render(); }
+      catch(e) { showAlert(e.message); }
+    });
+  });
+
+  // Review submission
+  document.querySelectorAll('[data-review]').forEach(el => {
+    el.addEventListener('click', async () => {
+      try {
+        await API('POST', `/submissions/${el.dataset.review}/review`);
+        state.submissions = await API('GET', `/facilities/${state.currentFacility.id}/submissions`);
+        render();
+      } catch(e) { showAlert(e.message); }
+    });
+  });
+}
+
+function bindModal() {
+  document.getElementById('modal-cancel')?.addEventListener('click', () => { state.modal = null; render(); });
+  document.getElementById('modal-backdrop')?.addEventListener('click', (e) => { if (e.target.id==='modal-backdrop') { state.modal = null; render(); } });
+
+  // Role change re-renders modal
+  document.getElementById('m-role')?.addEventListener('change', (e) => {
+    state.modalData.role = e.target.value; render(); bindModal();
+  });
+
+  document.getElementById('modal-save')?.addEventListener('click', async () => {
+    const m = state.modal;
+    try {
+      if (m === 'add-facility' || m === 'edit-facility') {
+        const name = document.getElementById('m-name').value.trim();
+        const address = document.getElementById('m-addr').value.trim();
+        if (!name) return showAlert('Facility name is required.');
+        if (m === 'add-facility') {
+          await API('POST', '/facilities', { name, address });
+        } else {
+          await API('PUT', `/facilities/${state.modalData.id}`, { name, address });
+          state.currentFacility = { ...state.currentFacility, name, address };
+        }
+        await loadFacilities();
+        state.modal = null; render();
+      }
+
+      if (m === 'add-user' || m === 'edit-user') {
+        const name = document.getElementById('m-name').value.trim();
+        const username = document.getElementById('m-username').value.trim();
+        const password = document.getElementById('m-password').value;
+        const role = document.getElementById('m-role').value;
+        const assigns = [...document.querySelectorAll('.m-assign:checked')].map(el => ({ facilityId: el.dataset.fac }));
+        const body = { name, username, role, assignments: assigns };
+        if (password) body.password = password;
+        if (m === 'add-user') { if (!password) return showAlert('Password is required for new users.'); await API('POST', '/users', body); }
+        else await API('PUT', `/users/${state.modalData.id}`, body);
+        await loadUsers();
+        state.modal = null; render();
+      }
+    } catch(e) { showAlert(e.message); }
+  });
+}
+
+// ── Boot ─────────────────────────────────────────────────
+(async () => {
+  if (state.token) {
+    try {
+      const data = await API('GET', '/me');
+      state.user = data.user;
+      localStorage.setItem('sc_user', JSON.stringify(data.user));
+      await loadFacilities();
+    } catch(e) { state.token = null; state.user = null; localStorage.removeItem('sc_token'); }
+  }
+  render();
+})();
+</script>
+</body>
+</html>
