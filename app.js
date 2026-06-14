@@ -18,6 +18,7 @@
     facilities: [], users: [], subs: [],
     tab: "facilities", editId: null, teamId: null, adminId: null, subsFid: null, subOpen: null, subStep: 0, secFac: null, openItem: null,
     fid: null, step: 0, resp: null, done: false, busy: false, tried: false, drafts: {}, savedAt: 0,
+    reports: [], myReports: [], report: null, newReportFac: "", newReportNote: "",
   };
   var saveTimer = null, saveFn = null;
 
@@ -69,12 +70,14 @@
   /* ---------- data loading ---------- */
   function loadForRole() {
     if (S.auth.role === "admin" || S.auth.role === "superadmin") {
-      return Promise.all([api("GET", "/api/facilities"), api("GET", "/api/users")])
-        .then(function (r) { S.facilities = r[0]; S.users = r[1]; });
+      return Promise.all([api("GET", "/api/facilities"), api("GET", "/api/users"), api("GET", "/api/reports")])
+        .then(function (r) { S.facilities = r[0]; S.users = r[1]; S.reports = r[2]; });
     }
-    return Promise.all([api("GET", "/api/facilities"), api("GET", "/api/drafts")])
-      .then(function (r) { S.facilities = r[0]; S.drafts = {}; (r[1] || []).forEach(function (d) { S.drafts[d.facilityId] = d; }); });
+    return Promise.all([api("GET", "/api/facilities"), api("GET", "/api/reports/mine"), api("GET", "/api/drafts")])
+      .then(function (r) { S.facilities = r[0]; S.myReports = r[1]; S.drafts = {}; (r[2] || []).forEach(function (d) { S.drafts[d.facilityId] = d; }); });
   }
+  function reloadReports() { return api("GET", "/api/reports").then(function (r) { S.reports = r; }); }
+  function reloadMine() { return api("GET", "/api/reports/mine").then(function (r) { S.myReports = r; }); }
   function boot() {
     if (!token()) { render(); return; }
     api("GET", "/api/me").then(function (r) { S.auth = r.user; return loadForRole(); })
@@ -87,12 +90,7 @@
       + '<div class="card"><div class="label">Username</div><input id="lu" value="' + esc(S.lu) + '" autocomplete="off">'
       + '<div class="label">Password</div><input id="lp" type="password" value="' + esc(S.lp) + '" autocomplete="off">'
       + (S.lerr ? '<div class="errbar">' + I("alert-triangle") + " " + esc(S.lerr) + "</div>" : "")
-      + '<button class="btn btn-dark" data-a="login" style="width:100%;margin-top:12px;justify-content:center">' + (S.busy ? '<span class="spin"></span> ' : "") + "Log in</button></div>"
-      + '<p class="hint" style="text-align:center;margin-top:14px">Demo accounts</p>'
-      + '<div class="demo-row"><button class="btn sm" data-a="demo" data-u="owner" data-p="owner123">' + I("crown") + " Super admin</button>"
-      + '<button class="btn sm" data-a="demo" data-u="manager" data-p="manager123">' + I("settings") + " Admin</button>"
-      + '<button class="btn sm" data-a="demo" data-u="marcus" data-p="marcus123">' + I("user") + " Marcus</button>"
-      + '<button class="btn sm" data-a="demo" data-u="dana" data-p="dana123">' + I("user") + " Dana</button></div></div>";
+      + '<button class="btn btn-dark" data-a="login" style="width:100%;margin-top:12px;justify-content:center">' + (S.busy ? '<span class="spin"></span> ' : "") + "Log in</button></div></div>";
   }
 
   function listEditor(arr, key, fields, addLabel) {
@@ -381,7 +379,6 @@
     if (S.editId) { var ef = S.facilities.find(function (x) { return x.id === S.editId; }); if (ef) return facilityEditor(ef); }
     if (S.teamId) { var tw = S.users.find(function (x) { return x.id === S.teamId; }); if (tw) return workerEditor(tw); }
     if (S.adminId) { var aw = S.users.find(function (x) { return x.id === S.adminId; }); if (aw) return adminEditor(aw); }
-    if (S.subsFid) return submissionsView();
 
     var T = [["facilities", "Facilities"], ["team", "Staff logins"], ["admins", "Admins"], ["reports", "Reports"], ["maint", "Maintenance"], ["inventory", "Inventory"], ["contractors", "Contractors"]];
     if (S.auth.role === "superadmin") T.push(["finance", "Insurance / Taxes"]);
@@ -407,9 +404,7 @@
       return tabs + back + inner;
     }
 
-    if (S.tab === "reports") {
-      return tabs + '<h3>Reports</h3><p class="hint">Pick a facility to review its check-in reports.</p><div class="list">' + S.facilities.map(function (f) { return '<button class="frow" data-a="subs" data-id="' + f.id + '"><span class="fi">' + I("file-text") + '</span><span class="fbody"><span class="fname">' + esc(f.name) + '</span><span class="faddr">' + esc(f.address || "") + "</span></span>" + I("chevron-right") + "</button>"; }).join("") + "</div>";
-    }
+    if (S.tab === "reports") { return tabs + (S.subOpen ? reportReview(S.subOpen) : reportsHome()); }
     if (S.tab === "team") {
       var wk = S.users.filter(function (u) { return u.role === "worker"; });
       return tabs + '<div class="between"><h3>Maintenance staff</h3><button class="btn btn-dark sm" data-a="addworker">' + I("plus") + ' Add person</button></div><p class="hint">Each person signs in and sees only the facilities you assign, on the check-in day you set.</p><div class="list">'
@@ -423,45 +418,57 @@
     return tabs + '<div class="between"><h3>Facilities</h3><button class="btn btn-dark sm" data-a="addfac">' + I("plus") + ' Add facility</button></div><p class="hint">Tap "Set up" to edit a facility\'s lists. Saving stamps the "form updated" date your techs see.</p><div class="list">'
       + S.facilities.map(function (f) {
         return '<div class="fcard"><div class="row"><span class="fi">' + I("building-warehouse") + '</span><div><div class="fname">' + esc(f.name) + '</div><div class="faddr">Updated ' + fday(f.config.updatedAt) + "</div></div></div>"
-          + '<div class="fc-actions"><button class="btn sm" data-a="subs" data-id="' + f.id + '">' + I("eye") + ' Reports</button><button class="btn sm" data-a="editfac" data-id="' + f.id + '">' + I("settings") + ' Set up</button><button class="icon-btn danger" data-a="delfac" data-id="' + f.id + '">' + I("trash") + "</button></div></div>";
+          + '<div class="fc-actions"><button class="btn sm" data-a="editfac" data-id="' + f.id + '">' + I("settings") + ' Set up</button><button class="icon-btn danger" data-a="delfac" data-id="' + f.id + '">' + I("trash") + "</button></div></div>";
       }).join("") + "</div>";
   }
 
-  function submissionsView() {
-    var f = S.facilities.find(function (x) { return x.id === S.subsFid; });
-    if (S.subOpen) return submissionReview(f, S.subOpen);
-    var notes = gA(f, "adminNotes");
-    var noteCard = '<div class="card"><div class="row" style="justify-content:space-between"><div style="font-weight:600">' + I("notes") + ' Internal notes</div><button class="btn btn-dark sm" data-a="noteadd">' + I("plus") + ' Add note</button></div><p class="hint" style="margin:6px 0 0">Reminders for next time — only admins see these; staff never do, and they stay until you delete them.</p>'
-      + (notes.length ? '<div class="stack" style="margin-top:8px">' + notes.map(function (n) { return '<div class="litem"><textarea rows="2" style="flex:1" data-note="' + n.id + '" placeholder="e.g. Have the tech photograph the new fence next time">' + esc(n.text || "") + '</textarea><button class="icon-btn danger" data-a="notedel" data-id="' + n.id + '">' + I("trash") + "</button></div>"; }).join("") + "</div>" : '<div class="muted" style="font-size:13px;margin-top:8px">No notes yet.</div>') + "</div>";
-    var pend = S.subs.filter(function (s) { return !s.reviewed; }), done = S.subs.filter(function (s) { return s.reviewed; });
-    var rowFor = function (s) { var i = S.subs.indexOf(s); return '<button class="frow" data-a="opensub" data-i="' + i + '"><span class="fi">' + I("file") + '</span><span class="fbody"><span class="fname">' + esc(s.workerName || "Tech") + '</span><span class="faddr">' + fdt(s.submittedAt) + (s.reviewed ? " · reviewed by " + esc(s.reviewedBy || "admin") : "") + "</span></span>" + (s.reviewed ? '<span class="pill" style="background:#E1F0E9;color:var(--ok)">' + I("check") + " Reviewed</span>" : '<span class="pill" style="background:#FBEAE1;color:var(--hazard-d)">Pending</span>') + "</button>"; };
-    return '<button class="btn" data-a="backsubs" style="margin-bottom:12px">' + I("arrow-left") + ' All facilities</button><h3>' + esc(f.name) + " — reports</h3>" + noteCard
-      + '<div class="dh" style="margin-top:14px">Pending review (' + pend.length + ")</div>" + (pend.length ? '<div class="list" style="margin-top:6px">' + pend.map(rowFor).join("") + "</div>" : '<div class="empty">Nothing waiting.</div>')
-      + '<div class="dh" style="margin-top:16px">Reviewed (' + done.length + ")</div>" + (done.length ? '<div class="list" style="margin-top:6px">' + done.map(rowFor).join("") + "</div>" : '<div class="empty">None reviewed yet.</div>');
+  function reportsHome() {
+    var facOpts = S.facilities.map(function (f) { return '<option value="' + f.id + '"' + ((S.newReportFac || (S.facilities[0] || {}).id) === f.id ? " selected" : "") + ">" + esc(f.name) + "</option>"; }).join("");
+    var newCard = '<div class="card"><div style="font-weight:600">' + I("send") + ' Send a new report request</div><p class="hint" style="margin:6px 0 10px">Pick a facility and send a report for its on-site team to fill out. It shows up in their portal right away.</p>'
+      + '<div class="label">Facility</div><select data-newfac>' + facOpts + "</select>"
+      + '<div class="label">Note for the tech (optional)</div><input data-newnote value="' + esc(S.newReportNote || "") + '" placeholder="e.g. Check the new fence this week">'
+      + '<button class="btn btn-dark" data-a="sendreport" style="width:100%;justify-content:center;margin-top:12px">' + I("send") + " Send report request</button></div>";
+    var nameOf = function (id) { var f = S.facilities.find(function (x) { return x.id === id; }); return f ? f.name : "Facility"; };
+    var selFac = S.newReportFac || (S.facilities[0] || {}).id, nf = S.facilities.find(function (x) { return x.id === selFac; });
+    var notes = nf ? (Array.isArray(nf.config.adminNotes) ? nf.config.adminNotes : []) : [];
+    var notesCard = nf ? '<div class="card"><div class="row" style="justify-content:space-between"><div style="font-weight:600">' + I("notes") + " Internal notes — " + esc(nf.name) + '</div><button class="btn btn-dark sm" data-a="noteadd">' + I("plus") + ' Add note</button></div><p class="hint" style="margin:6px 0 0">Reminders for next time — only admins see these; staff never do, and they stay until you delete them.</p>'
+      + (notes.length ? '<div class="stack" style="margin-top:8px">' + notes.map(function (n) { return '<div class="litem"><textarea rows="2" style="flex:1" data-note="' + n.id + '" placeholder="e.g. Have the tech photograph the new fence next time">' + esc(n.text || "") + '</textarea><button class="icon-btn danger" data-a="notedel" data-id="' + n.id + '">' + I("trash") + "</button></div>"; }).join("") + "</div>" : '<div class="muted" style="font-size:13px;margin-top:8px">No notes yet.</div>') + "</div>" : "";
+    var out = S.reports.filter(function (r) { return r.status === "outstanding"; }), comp = S.reports.filter(function (r) { return r.status === "completed"; });
+    var outCard = out.map(function (r) { return '<div class="card"><div class="row" style="justify-content:space-between;align-items:flex-start"><div style="font-weight:600">' + esc(nameOf(r.facilityId)) + '</div><span class="pill" style="background:#FBEAE1;color:var(--hazard-d)">' + I("clock") + ' Awaiting tech</span></div><div class="label">Note for the tech</div><textarea rows="2" data-rnote="' + r.id + '" placeholder="(no note)">' + esc(r.note || "") + '</textarea><div class="row" style="justify-content:space-between;align-items:center;margin-top:8px"><span class="muted" style="font-size:12px">Sent ' + fdt(r.createdAt) + " by " + esc(r.createdBy || "admin") + '</span><button class="btn sm danger" data-a="delreport" data-id="' + r.id + '">' + I("trash") + " Delete</button></div></div>"; }).join("");
+    var compRow = function (r) { return '<div class="frow" style="cursor:default"><button class="fbody" data-a="openrep" data-id="' + r.id + '" style="display:flex;align-items:center;gap:10px;background:none;border:none;text-align:left;flex:1;cursor:pointer"><span class="fi">' + I("file") + '</span><span><span class="fname">' + esc(nameOf(r.facilityId)) + '</span><span class="faddr">' + esc(r.workerName || "Tech") + " · " + fdt(r.submittedAt) + "</span></span></button>" + (r.reviewed ? '<span class="pill" style="background:#E1F0E9;color:var(--ok)">' + I("check") + " Reviewed</span>" : '<span class="pill" style="background:#FBEAE1;color:var(--hazard-d)">Needs review</span>') + '<button class="icon-btn danger" data-a="delreport" data-id="' + r.id + '">' + I("trash") + "</button></div>"; };
+    return '<h3>Reports</h3>' + newCard + notesCard
+      + '<div class="dh" style="margin-top:16px">Outstanding (' + out.length + ")</div>" + (out.length ? '<div class="stack" style="margin-top:6px">' + outCard + "</div>" : '<div class="empty">No reports waiting on techs.</div>')
+      + '<div class="dh" style="margin-top:16px">Completed (' + comp.length + ")</div>" + (comp.length ? '<div class="list" style="margin-top:6px">' + comp.map(compRow).join("") + "</div>" : '<div class="empty">No completed reports yet.</div>');
   }
-  function submissionReview(f, s) {
-    var c = f.config, d = s.data, g = d.grounds || {}, yn = function (v) { return v === true ? "Yes" : v === false ? "No" : "—"; };
+  function reportReview(rep) {
+    var f = S.facilities.find(function (x) { return x.id === rep.facilityId; });
+    if (!f) return '<button class="btn" data-a="backopen" style="margin-bottom:12px">' + I("arrow-left") + ' Reports</button><div class="empty">That facility was removed.</div>';
+    var c = f.config, d = rep.data || {}, g = d.grounds || {}, yn = function (v) { return v === true ? "Yes" : v === false ? "No" : "—"; };
     var gal = function (arr, tag) { return arr && arr.length ? '<div class="gal">' + arr.filter(function (p) { return p.kind === "image"; }).map(function (p, i) { return '<a href="' + p.url + '" download="' + esc(f.name).replace(/[^A-Za-z0-9]+/g, "_") + "_" + (tag || "photo") + "_" + (i + 1) + '.jpg" title="Click to download"><img src="' + p.url + '"></a>'; }).join("") + '</div><div class="muted" style="font-size:12px;margin-top:4px">Tip: click a photo to download it.</div>' : ""; };
+    var done = function (b) { return b ? "Done ✓" : "Not done ✗"; };
     function stepHtml(key) {
       if (key === "Tasks") return '<div class="card dgrp"><div class="dh">Weekly tasks</div>' + (c.weeklyTasks.length ? c.weeklyTasks.map(function (t) { var tr = (d.tasks || {})[t.id] || {}; return '<div class="dline"><div class="dq">' + esc(t.text) + '</div><div class="da">' + esc(tr.note || "—") + "</div>" + gal(tr.files) + "</div>"; }).join("") : '<div class="dline muted">No tasks this week.</div>') + "</div>";
-      if (key === "Lockout") return '<div class="card dgrp"><div class="dh">Lockout</div>'
-        + c.lockoutAdd.map(function (u) { var a = (d.lockAdd || {})[u.id] || {}; return '<div class="dline"><span class="chip sm">' + u.unit + '</span> add · lock <b class="mono">' + esc(a.lockNo || "????") + "</b> · " + (a.done ? "✓" : "✗") + "</div>"; }).join("")
-        + c.lockoutRemove.map(function (u) { return '<div class="dline"><span class="chip sm">' + u.unit + "</span> remove · " + (((d.lockRemove || {})[u.id] || {}).done ? "✓" : "✗") + "</div>"; }).join("")
-        + c.lockoutKeep.map(function (u) { return '<div class="dline"><span class="chip sm">' + u.unit + "</span> leave · " + (((d.lockKeep || {})[u.id] || {}).done ? "✓" : "—") + "</div>"; }).join("")
-        + (!c.lockoutAdd.length && !c.lockoutRemove.length && !c.lockoutKeep.length ? '<div class="dline muted">None</div>' : "") + "</div>";
-      if (key === "Maintenance") return '<div class="card dgrp"><div class="dh">Maintenance</div>' + (c.maintenance.length ? c.maintenance.map(function (u) { return '<div class="dline"><span class="chip sm">' + u.unit + "</span> " + esc(u.note) + '<div class="da">' + esc(((d.maintenance || {})[u.id] || {}).statement || "—") + "</div></div>"; }).join("") : '<div class="dline muted">None</div>') + "</div>";
-      if (key === "Vacated") return '<div class="card dgrp"><div class="dh">Recently vacated</div>' + (c.vacated.length ? c.vacated.map(function (u) { var v = (d.vacated || {})[u.id] || {}; var ck = function (k, lab) { return (v[k] ? "✓ " : "✗ ") + lab; }; return '<div class="dline"><span class="chip sm">' + u.unit + "</span> " + (v.status === "clean" ? "Clean / broom-swept" : v.status === "problem" ? "Problem: " + esc(v.problem) : "—") + '<div class="da">' + ck("door", "door rolls up") + " · " + ck("latch", "latch") + " · " + ck("intrusion", "no intrusion") + " · " + ck("water", "no water") + "</div>" + gal(v.photos, "vacated_" + u.unit) + "</div>"; }).join("") : '<div class="dline muted">None</div>') + "</div>";
-      if (key === "Vacant") return '<div class="card dgrp"><div class="dh">Vacant</div><div class="dline">' + (d.vacantConfirmed === false ? "Extra unlocked units: " + esc(d.vacantExtra) : d.vacantConfirmed ? "Confirmed only those are unlocked" : "—") + "</div></div>";
-      if (key === "Auction") return '<div class="card dgrp"><div class="dh">Auction</div>' + (c.auction.length ? c.auction.map(function (u) { var a = (d.auction || {})[u.id] || {}; return '<div class="dline"><span class="chip sm">' + u.unit + "</span> " + (a.untouched ? "✓ untouched" : "✗") + " · " + (a.lockBack ? "✓ re-locked" : "✗") + ' · lock <b class="mono">' + esc(a.lockNo || "????") + "</b>" + (a.report ? '<div class="da">' + esc(a.report) + "</div>" : "") + gal(a.photos, "auction_" + u.unit) + "</div>"; }).join("") : '<div class="dline muted">None</div>') + "</div>";
-      if (key === "Grounds") return '<div class="card dgrp"><div class="dh">Grounds</div><div class="dline">Weeds: ' + yn(g.weeds) + (g.weedsNote ? " — " + esc(g.weedsNote) : "") + '</div><div class="dline">Grass mowed: ' + yn(g.mowed) + '</div><div class="dline">Potholes / gravel needed: ' + yn(g.potholes) + (g.potholesNote ? " — " + esc(g.potholesNote) : "") + '</div><div class="dline">Exterior bulbs out: ' + yn(g.bulbs) + (g.bulbsNote ? " — " + esc(g.bulbsNote) : "") + '</div><div class="dline">New building damage: ' + yn(g.damage) + (g.damageNote ? " — " + esc(g.damageNote) : "") + '</div><div class="dline">Leaves / organic matter: ' + yn(g.leaves) + (g.leavesNote ? " — " + esc(g.leavesNote) : "") + '</div><div class="dline">Snow obstruction: ' + yn(g.snow) + (g.snowNote ? " — " + esc(g.snowNote) : "") + '</div><div class="dline">Trash / items out of place: ' + yn(g.trash) + (g.trashNote ? " — " + esc(g.trashNote) : "") + '</div><div class="dline">Closed open doors: ' + yn(g.doors) + "</div>" + (g.notes ? '<div class="dline">Notes: ' + esc(g.notes) + "</div>" : "") + gal(g.photos, "grounds") + "</div>";
+      if (key === "Lockout") {
+        var none = !c.lockoutAdd.length && !c.lockoutRemove.length && !c.lockoutKeep.length;
+        return '<div class="card dgrp"><div class="dh">Lockout</div>'
+          + (c.lockoutAdd.length ? '<div class="da" style="font-weight:600;margin-top:2px">Locks to add</div>' + c.lockoutAdd.map(function (u) { var a = (d.lockAdd || {})[u.id] || {}; return '<div class="dline">Unit ' + esc(u.unit) + ' — lock <b class="mono">' + esc(a.lockNo || "????") + "</b> — " + done(a.done) + "</div>"; }).join("") : "")
+          + (c.lockoutRemove.length ? '<div class="da" style="font-weight:600;margin-top:6px">Locks removed</div>' + c.lockoutRemove.map(function (u) { return '<div class="dline">Unit ' + esc(u.unit) + " — " + done(((d.lockRemove || {})[u.id] || {}).done) + "</div>"; }).join("") : "")
+          + (c.lockoutKeep.length ? '<div class="da" style="font-weight:600;margin-top:6px">Leave in place</div>' + c.lockoutKeep.map(function (u) { return '<div class="dline">Unit ' + esc(u.unit) + " — " + done(((d.lockKeep || {})[u.id] || {}).done) + "</div>"; }).join("") : "")
+          + (none ? '<div class="dline muted">None</div>' : "") + "</div>";
+      }
+      if (key === "Maintenance") return '<div class="card dgrp"><div class="dh">Maintenance</div>' + (c.maintenance.length ? c.maintenance.map(function (u) { return '<div class="dline">Unit ' + esc(u.unit) + " — " + esc(u.note) + '<div class="da">' + esc(((d.maintenance || {})[u.id] || {}).statement || "—") + "</div></div>"; }).join("") : '<div class="dline muted">None</div>') + "</div>";
+      if (key === "Vacated") return '<div class="card dgrp"><div class="dh">Recently vacated</div>' + (c.vacated.length ? c.vacated.map(function (u) { var v = (d.vacated || {})[u.id] || {}; var ck = function (k, lab) { return (v[k] ? "✓ " : "✗ ") + lab; }; return '<div class="dline">Unit ' + esc(u.unit) + " — " + (v.status === "clean" ? "Clean / broom-swept" : v.status === "problem" ? "Problem: " + esc(v.problem) : "—") + '<div class="da">' + ck("door", "door rolls up") + " · " + ck("latch", "latch") + " · " + ck("intrusion", "no intrusion") + " · " + ck("water", "no water") + "</div>" + gal(v.photos, "vacated_" + u.unit) + "</div>"; }).join("") : '<div class="dline muted">None</div>') + "</div>";
+      if (key === "Vacant") return '<div class="card dgrp"><div class="dh">Vacant</div><div class="da" style="font-weight:600">Office shows these as vacant:</div><div class="dline">' + (c.vacant.length ? c.vacant.map(function (u) { return "Unit " + esc(u.unit); }).join(", ") : "None on file") + '</div><div class="dline">' + (d.vacantConfirmed === false ? "Tech found other unlocked units: " + esc(d.vacantExtra) : d.vacantConfirmed ? "Tech confirmed only these are vacant" : "—") + "</div></div>";
+      if (key === "Auction") return '<div class="card dgrp"><div class="dh">Auction</div>' + (c.auction.length ? c.auction.map(function (u) { var a = (d.auction || {})[u.id] || {}; return '<div class="dline">Unit ' + esc(u.unit) + " — " + (a.untouched ? "✓ untouched" : "✗ touched") + " · " + (a.lockBack ? "✓ re-locked" : "✗ not re-locked") + ' · lock <b class="mono">' + esc(a.lockNo || "????") + "</b>" + (a.report ? '<div class="da">' + esc(a.report) + "</div>" : "") + gal(a.photos, "auction_" + u.unit) + "</div>"; }).join("") : '<div class="dline muted">None</div>') + "</div>";
+      if (key === "Grounds") { var doorTxt = g.doors === true ? "Doors were open but they were closed" : g.doors === false ? "None open" : "—"; return '<div class="card dgrp"><div class="dh">Grounds</div><div class="dline">Weeds: ' + yn(g.weeds) + (g.weedsNote ? " — " + esc(g.weedsNote) : "") + '</div><div class="dline">Grass mowed: ' + yn(g.mowed) + '</div><div class="dline">Potholes / gravel needed: ' + yn(g.potholes) + (g.potholesNote ? " — " + esc(g.potholesNote) : "") + '</div><div class="dline">Exterior bulbs out: ' + yn(g.bulbs) + (g.bulbsNote ? " — " + esc(g.bulbsNote) : "") + '</div><div class="dline">New building damage: ' + yn(g.damage) + (g.damageNote ? " — " + esc(g.damageNote) : "") + '</div><div class="dline">Leaves / organic matter: ' + yn(g.leaves) + (g.leavesNote ? " — " + esc(g.leavesNote) : "") + '</div><div class="dline">Snow obstruction: ' + yn(g.snow) + (g.snowNote ? " — " + esc(g.snowNote) : "") + '</div><div class="dline">Trash / items out of place: ' + yn(g.trash) + (g.trashNote ? " — " + esc(g.trashNote) : "") + '</div><div class="dline">Open doors: ' + doorTxt + "</div>" + (g.notes ? '<div class="dline">Notes: ' + esc(g.notes) + "</div>" : "") + gal(g.photos, "grounds") + "</div>"; }
       if (key === "Climate") { var cl = d.climate; return cl ? '<div class="card dgrp"><div class="dh">Climate control</div><div class="dline">Temperature reasonable: ' + yn(cl.temp) + (cl.tempNote ? " — " + esc(cl.tempNote) : "") + '</div><div class="dline">Interior bulbs out: ' + yn(cl.bulbs) + (cl.bulbsNote ? " — " + esc(cl.bulbsNote) : "") + '</div><div class="dline">Interior trash: ' + yn(cl.trash) + (cl.trashNote ? " — " + esc(cl.trashNote) : "") + '</div><div class="dline">Dollies in place: ' + yn(cl.dollies) + "</div>" + gal(cl.photos, "climate") + "</div>" : '<div class="empty">No climate data.</div>'; }
-      if (key === "Review") return '<div class="card"><div class="dh">Finish review</div><p class="hint" style="margin:6px 0 0">You\'ve stepped through the whole report.</p>' + (s.reviewed ? '<div class="saved" style="margin-top:10px">' + I("check") + " Reviewed by " + esc(s.reviewedBy || "admin") + " on " + fdt(s.reviewedAt) + "</div>" : '<button class="btn btn-ok" data-a="markreviewed" style="width:100%;justify-content:center;margin-top:10px">' + (S.busy ? '<span class="spin"></span> ' : I("check") + " ") + "Submit report as reviewed</button>") + "</div>";
+      if (key === "Review") return '<div class="card"><div class="dh">Finish review</div><p class="hint" style="margin:6px 0 0">You\'ve stepped through the whole report.</p>' + (rep.reviewed ? '<div class="saved" style="margin-top:10px">' + I("check") + " Reviewed by " + esc(rep.reviewedBy || "admin") + " on " + fdt(rep.reviewedAt) + "</div>" : '<button class="btn btn-ok" data-a="markreviewed" data-id="' + rep.id + '" style="width:100%;justify-content:center;margin-top:10px">' + (S.busy ? '<span class="spin"></span> ' : I("check") + " ") + "Submit report as reviewed</button>") + "</div>";
       return "";
     }
     var STEPS = stepsFor(f), sk = STEPS[S.subStep][0], last = S.subStep === STEPS.length - 1;
-    var top = '<div class="wtop"><button class="btn" data-a="backopen">' + I("arrow-left") + " Reports</button>" + (s.reviewed ? '<span class="pill" style="background:#E1F0E9;color:var(--ok)">' + I("check") + " Reviewed</span>" : '<span class="pill" style="background:#FBEAE1;color:var(--hazard-d)">Pending review</span>') + "</div>";
+    var top = '<div class="wtop"><button class="btn" data-a="backopen">' + I("arrow-left") + " Reports</button>" + (rep.reviewed ? '<span class="pill" style="background:#E1F0E9;color:var(--ok)">' + I("check") + " Reviewed</span>" : '<span class="pill" style="background:#FBEAE1;color:var(--hazard-d)">Needs review</span>') + "</div>";
     var pips = '<div class="pips">' + STEPS.map(function (st, i) { return '<button class="pip ' + (i < S.subStep ? "done" : i === S.subStep ? "on" : "") + '" data-a="substep" data-i="' + i + '"><small>' + String(i + 1).padStart(2, "0") + "</small>" + I(st[1]) + "</button>"; }).join("") + "</div>";
-    var head = '<div class="wo"><div class="between"><div><div class="eyebrow">Reviewing report</div><h4>' + esc(f.name) + '</h4></div><div class="row" style="gap:6px;flex-wrap:wrap"><span class="chip" style="display:inline-flex;align-items:center;gap:4px">' + I("user") + " " + esc(s.workerName || "Tech") + '</span><span class="chip" style="display:inline-flex;align-items:center;gap:4px">' + I("calendar") + " " + fdt(s.submittedAt) + "</span></div></div>" + pips + '<div class="cur">' + sk + "</div></div>";
+    var head = '<div class="wo"><div class="between"><div><div class="eyebrow">Reviewing report</div><h4>' + esc(f.name) + '</h4></div><div class="row" style="gap:6px;flex-wrap:wrap"><span class="chip" style="display:inline-flex;align-items:center;gap:4px">' + I("user") + " " + esc(rep.workerName || "Tech") + '</span><span class="chip" style="display:inline-flex;align-items:center;gap:4px">' + I("calendar") + " " + fdt(rep.submittedAt) + "</span></div></div>" + pips + '<div class="cur">' + sk + "</div></div>";
     var nav = '<div class="navb"><button class="btn" data-a="subback"' + (S.subStep === 0 ? " disabled" : "") + ">" + I("chevron-left") + ' Back</button><span class="nc">' + (S.subStep + 1) + " / " + STEPS.length + "</span>" + (last ? '<button class="btn" data-a="backopen">' + I("list") + " Reports</button>" : '<button class="btn btn-dark" data-a="subnext">Next ' + I("chevron-right") + "</button>") + "</div>";
     return top + head + '<div class="stack" style="margin-top:14px">' + stepHtml(sk) + "</div>" + nav;
   }
@@ -511,34 +518,34 @@
     }).join("") + "</div>";
   }
   function currentIssues() { var f = S.facilities.find(function (x) { return x.id === S.fid; }); if (!f) return []; var ST = stepsFor(f); return stepErrors(ST[S.step][0], S.resp, f.config); }
-  function saveDraft() { if (S.auth && S.auth.role === "worker" && S.fid && S.resp && !S.done) { api("PUT", "/api/drafts/" + S.fid, { data: S.resp, step: S.step }); S.drafts = S.drafts || {}; S.drafts[S.fid] = { facilityId: S.fid, savedAt: Date.now(), step: S.step }; } }
+  function saveDraft() { if (S.auth && S.auth.role === "worker" && S.report && S.resp && !S.done) { var k = S.report.id; api("PUT", "/api/drafts/" + k, { data: S.resp, step: S.step }); S.drafts = S.drafts || {}; S.drafts[k] = { facilityId: k, savedAt: Date.now(), step: S.step }; } }
   function yn(path, val, y, n) { return '<div class="seg"><button class="' + (val === true ? "y" : "") + '" data-a="yn" data-p="' + path + '" data-v="1">' + (y || "Yes") + '</button><button class="' + (val === false ? "n" : "") + '" data-a="yn" data-p="' + path + '" data-v="0">' + (n || "No") + "</button></div>"; }
 
   function worker() {
     var u = S.auth, mine = S.facilities; // server already scoped to assigned
     if (!S.fid) {
       var banner = '<div class="banner"><div><div class="muted" style="font-size:13px;font-weight:600">Welcome back</div><h4>' + esc(u.name) + '</h4></div><span class="pill">' + I("calendar") + " Today is " + today + "</span></div>";
-      var list = mine.length ? '<div class="list">' + mine.map(function (f) { var is = f.checkInDay === today; return '<button class="frow" data-a="pick" data-id="' + f.id + '"><span class="fi">' + I("building-warehouse") + '</span><span class="fbody"><span class="fname">' + esc(f.name) + '</span><span class="fmeta"><span class="pill' + (is ? " today" : "") + '">' + I("calendar") + " Check-in: " + (f.checkInDay || "—") + (is ? " · today" : "") + '</span><span class="pill">' + I("refresh") + " Form updated " + fday(f.config.updatedAt) + "</span>" + (S.drafts && S.drafts[f.id] ? '<span class="pill draft">' + I("device-floppy") + " Draft saved</span>" : "") + "</span></span>" + I("chevron-right") + "</button>"; }).join("") + "</div>"
-        : '<div class="empty">' + I("inbox") + " No facilities assigned to you yet. Your manager assigns sites and a check-in day.</div>";
-      return banner + '<h3 style="margin-bottom:10px">Your facilities</h3>' + list;
+      var list = S.myReports.length ? '<div class="list">' + S.myReports.map(function (rp) { return '<button class="frow" data-a="openreport" data-id="' + rp.id + '"><span class="fi">' + I("file-text") + '</span><span class="fbody"><span class="fname">' + esc(rp.facilityName) + '</span><span class="fmeta"><span class="pill" style="background:#FBEAE1;color:var(--hazard-d)">' + I("clipboard-list") + " Report to fill out</span>" + (S.drafts && S.drafts[rp.id] ? '<span class="pill draft">' + I("device-floppy") + " Draft saved</span>" : "") + "</span>" + (rp.note ? '<span class="faddr">' + I("note") + " " + esc(rp.note) + "</span>" : "") + "</span>" + I("chevron-right") + "</button>"; }).join("") + "</div>"
+        : '<div class="done" style="padding:30px 16px"><div class="di" style="background:#E1F0E9;color:var(--ok)">' + I("circle-check") + '</div><h3>No reports outstanding</h3><p class="muted">You\'re all caught up. New reports your manager sends will show up here.</p></div>';
+      return banner + '<h3 style="margin-bottom:10px">Outstanding reports</h3>' + list;
     }
-    var f = mine.find(function (x) { return x.id === S.fid; }), r = S.resp, cfg = f.config;
+    var f = mine.find(function (x) { return x.id === S.fid; }) || S.facilities.find(function (x) { return x.id === S.fid; }), r = S.resp, cfg = f.config;
     var STEPS = stepsFor(f);
-    if (S.done) return '<div class="done"><div class="di">' + I("circle-check") + '</div><h3>Report submitted</h3><p class="muted">' + esc(f.name) + ' — sent to the office. Thanks, ' + esc(u.name) + '.</p><button class="btn btn-dark" data-a="restart">Back to my facilities</button></div>';
+    if (S.done) return '<div class="done"><div class="di">' + I("circle-check") + '</div><h3>Report submitted</h3><p class="muted">' + esc(f.name) + ' — sent to the office. Thanks, ' + esc(u.name) + '.</p><button class="btn btn-dark" data-a="restart">Back to my reports</button></div>';
 
     var sk = STEPS[S.step][0], body = "";
     var marks = {}; if (S.tried) stepErrors(sk, r, cfg).forEach(function (it) { if (it.mark) marks[it.mark] = 1; });
     var inv = function (m) { return marks[m] ? " invalid" : ""; };
     if (sk === "Tasks") body = cfg.weeklyTasks.length ? cfg.weeklyTasks.map(function (t, i) { var tr = r.tasks[t.id] || {}; return '<div class="card"><div class="row" style="align-items:flex-start"><span class="chip">' + (i + 1) + '</span><p style="margin:0;font-weight:600">' + esc(t.text) + '</p></div><div class="label">Your response</div><textarea rows="2" data-resp="tasks.' + t.id + '.note" placeholder="Status, what you did…">' + esc(tr.note || "") + "</textarea>" + photoField("Attach photos", 0, tr.files || [], "task:" + t.id) + "</div>"; }).join("") : '<div class="empty">No tasks this week.</div>';
     if (sk === "Lockout") {
-      var sec = function (title, col, arr, key, extra) { return '<div class="section"><div class="sh" style="background:' + col + '"><span>' + title + '</span></div><div class="sb">' + (arr.length ? arr.map(function (x) { var a = r[key][x.id] || {}; return '<div class="lrow' + inv(key + ":" + x.id) + '"><span class="chip">' + x.unit + "</span>" + (extra ? '<div class="locknum"><span class="muted" style="font-size:13px">Lock #</span><input class="mono" inputmode="numeric" maxlength="4" placeholder="0000" data-resp="lockAdd.' + x.id + '.lockNo" data-num="1" value="' + esc(a.lockNo || "") + '"></div>' : "") + '<button class="check' + (a.done ? " on" : "") + '" data-a="chk" data-p="' + key + "." + x.id + '.done"><span class="bx">' + (a.done ? I("check") : "") + (extra ? "</span>Lock added</button>" : "</span>" + (key === "lockKeep" ? "Verified locked" : "Lock removed") + "</button>") + "</div>"; }).join("") : '<div class="muted" style="font-size:13px;padding:6px 0">None.</div>') + "</div></div>"; };
+      var sec = function (title, col, arr, key, extra) { return '<div class="section"><div class="sh" style="background:' + col + '"><span>' + title + '</span></div><div class="sb">' + (arr.length ? arr.map(function (x) { var a = r[key][x.id] || {}; return '<div class="lrow' + inv(key + ":" + x.id) + '"><span class="chip">Unit ' + x.unit + "</span>" + (extra ? '<div class="locknum"><span class="muted" style="font-size:13px">Lock #</span><input class="mono" inputmode="numeric" maxlength="4" placeholder="0000" data-resp="lockAdd.' + x.id + '.lockNo" data-num="1" value="' + esc(a.lockNo || "") + '"></div>' : "") + '<button class="check' + (a.done ? " on" : "") + '" data-a="chk" data-p="' + key + "." + x.id + '.done"><span class="bx">' + (a.done ? I("check") : "") + (extra ? "</span>Lock added</button>" : "</span>" + (key === "lockKeep" ? "Verified locked" : "Lock removed") + "</button>") + "</div>"; }).join("") : '<div class="muted" style="font-size:13px;padding:6px 0">None.</div>') + "</div></div>"; };
       body = '<div class="stack">' + sec("Locks to add", "var(--hazard)", cfg.lockoutAdd, "lockAdd", true) + sec("Locks to remove", "var(--alert)", cfg.lockoutRemove, "lockRemove") + sec("Leave in place", "var(--ok)", cfg.lockoutKeep, "lockKeep") + "</div>";
     }
-    if (sk === "Maintenance") body = cfg.maintenance.length ? cfg.maintenance.map(function (x) { return '<div class="card"><div class="row" style="flex-wrap:wrap"><span class="chip">' + x.unit + '</span><span class="muted">' + esc(x.note) + '</span></div><div class="label">Where it stands now</div><textarea rows="2" data-resp="maintenance.' + x.id + '.statement">' + esc((r.maintenance[x.id] || {}).statement || "") + "</textarea></div>"; }).join("") : '<div class="empty">No units flagged.</div>';
+    if (sk === "Maintenance") body = cfg.maintenance.length ? cfg.maintenance.map(function (x) { return '<div class="card"><div class="row" style="flex-wrap:wrap"><span class="chip">Unit ' + x.unit + '</span><span class="muted">' + esc(x.note) + '</span></div><div class="label">Where it stands now</div><textarea rows="2" data-resp="maintenance.' + x.id + '.statement">' + esc((r.maintenance[x.id] || {}).statement || "") + "</textarea></div>"; }).join("") : '<div class="empty">No units flagged.</div>';
     if (sk === "Vacated") body = cfg.vacated.length ? cfg.vacated.map(function (x) {
       var v = r.vacated[x.id] || {};
       var ck = function (key, label, note) { return '<button class="check full' + (v[key] ? " on" : "") + '" data-a="chk" data-p="vacated.' + x.id + "." + key + '"><span class="bx">' + (v[key] ? I("check") : "") + "</span><span>" + label + (note ? '<span class="muted" style="display:block;font-size:12px;font-weight:400">' + note + "</span>" : "") + "</span></button>"; };
-      return '<div class="card' + inv("vacated:" + x.id) + '"><span class="chip">' + x.unit + '</span><div class="cond"><button class="' + (v.status === "clean" ? "ok" : "") + '" data-a="cond" data-id="' + x.id + '" data-v="clean">' + I("circle-check") + ' Clean / broom-swept</button><button class="' + (v.status === "problem" ? "bad" : "") + '" data-a="cond" data-id="' + x.id + '" data-v="problem">' + I("alert-triangle") + ' Problem</button></div>'
+      return '<div class="card' + inv("vacated:" + x.id) + '"><span class="chip">Unit ' + x.unit + '</span><div class="cond"><button class="' + (v.status === "clean" ? "ok" : "") + '" data-a="cond" data-id="' + x.id + '" data-v="clean">' + I("circle-check") + ' Clean / broom-swept</button><button class="' + (v.status === "problem" ? "bad" : "") + '" data-a="cond" data-id="' + x.id + '" data-v="problem">' + I("alert-triangle") + ' Problem</button></div>'
         + (v.status === "problem" ? '<textarea rows="2" style="margin-top:10px" data-resp="vacated.' + x.id + '.problem" placeholder="What is wrong?">' + esc(v.problem || "") + "</textarea>" : "")
         + '<div class="label" style="margin-top:12px">Unit condition checks</div>'
         + ck("door", "Door rolls up properly", "Doesn't suddenly close; springs in working order")
@@ -547,8 +554,8 @@
         + ck("water", "No wet spots on the floor and no water intrusion")
         + photoField("Photo of the unit", 0, v.photos || [], "vacated:" + x.id) + "</div>";
     }).join("") : '<div class="empty">No vacated units.</div>';
-    if (sk === "Vacant") body = '<div class="card' + inv("vacant") + '"><div class="label">Office shows these as vacant (no lock)</div><div class="row" style="flex-wrap:wrap">' + (cfg.vacant.length ? cfg.vacant.map(function (x) { return '<span class="chip">' + x.unit + "</span>"; }).join("") : '<span class="muted">None.</span>') + '</div><p style="margin:12px 0 8px;font-weight:600">Are these the only units without a lock?</p>' + yn("vacantConfirmed", r.vacantConfirmed, "Yes, that's all", "No, found another") + (r.vacantConfirmed === false ? '<div class="label">List every other unit you found unlocked</div><textarea rows="2" data-resp="vacantExtra">' + esc(r.vacantExtra) + "</textarea>" : "") + "</div>";
-    if (sk === "Auction") body = cfg.auction.length ? '<div class="notice">' + I("shield") + ' Do not touch anything inside. Photograph as-is, then re-lock.</div>' + cfg.auction.map(function (x) { var a = r.auction[x.id] || {}; return '<div class="card' + inv("auction:" + x.id) + '" style="margin-top:11px"><span class="chip">' + x.unit + "</span>" + photoField("Photos of contents", 3, a.photos || [], "auction:" + x.id) + '<button class="check full' + (a.untouched ? " on" : "") + '" data-a="chk" data-p="auction.' + x.id + '.untouched"><span class="bx">' + (a.untouched ? I("check") : "") + '</span>I did not touch any items inside</button><button class="check full' + (a.lockBack ? " on" : "") + '" data-a="chk" data-p="auction.' + x.id + '.lockBack"><span class="bx">' + (a.lockBack ? I("check") : "") + '</span>Lock put back on the unit</button><div class="row" style="margin-top:10px"><div class="locknum"><span class="muted" style="font-size:13px">Lock # put on unit</span><input class="mono" inputmode="numeric" maxlength="4" placeholder="0000" data-resp="auction.' + x.id + '.lockNo" data-num="1" value="' + esc(a.lockNo || "") + '"></div></div><div class="label">Report</div><textarea rows="2" data-resp="auction.' + x.id + '.report">' + esc(a.report || "") + "</textarea></div>"; }).join("") : '<div class="empty">No auction units.</div>';
+    if (sk === "Vacant") body = '<div class="card' + inv("vacant") + '"><div class="label">Office shows these as vacant (no lock)</div><div class="row" style="flex-wrap:wrap">' + (cfg.vacant.length ? cfg.vacant.map(function (x) { return '<span class="chip">Unit ' + x.unit + "</span>"; }).join("") : '<span class="muted">None.</span>') + '</div><p style="margin:12px 0 8px;font-weight:600">Are these the only units without a lock?</p>' + yn("vacantConfirmed", r.vacantConfirmed, "Yes, that's all", "No, found another") + (r.vacantConfirmed === false ? '<div class="label">List every other unit you found unlocked</div><textarea rows="2" data-resp="vacantExtra">' + esc(r.vacantExtra) + "</textarea>" : "") + "</div>";
+    if (sk === "Auction") body = cfg.auction.length ? '<div class="notice">' + I("shield") + ' Do not touch anything inside. Photograph as-is, then re-lock.</div>' + cfg.auction.map(function (x) { var a = r.auction[x.id] || {}; return '<div class="card' + inv("auction:" + x.id) + '" style="margin-top:11px"><span class="chip">Unit ' + x.unit + "</span>" + photoField("Photos of contents", 3, a.photos || [], "auction:" + x.id) + '<button class="check full' + (a.untouched ? " on" : "") + '" data-a="chk" data-p="auction.' + x.id + '.untouched"><span class="bx">' + (a.untouched ? I("check") : "") + '</span>I did not touch any items inside</button><button class="check full' + (a.lockBack ? " on" : "") + '" data-a="chk" data-p="auction.' + x.id + '.lockBack"><span class="bx">' + (a.lockBack ? I("check") : "") + '</span>Lock put back on the unit</button><div class="row" style="margin-top:10px"><div class="locknum"><span class="muted" style="font-size:13px">Lock # put on unit</span><input class="mono" inputmode="numeric" maxlength="4" placeholder="0000" data-resp="auction.' + x.id + '.lockNo" data-num="1" value="' + esc(a.lockNo || "") + '"></div></div><div class="label">Report</div><textarea rows="2" data-resp="auction.' + x.id + '.report">' + esc(a.report || "") + "</textarea></div>"; }).join("") : '<div class="empty">No auction units.</div>';
     if (sk === "Grounds") { var g = r.grounds; var q = function (lab, key, y, n) { return '<div class="qrow' + inv("grounds." + key) + '"><span>' + lab + "</span>" + yn("grounds." + key, g[key], y, n) + "</div>"; }; var nt = function (key, ph) { return '<textarea rows="2" data-resp="grounds.' + key + '" placeholder="' + ph + '">' + esc(g[key]) + "</textarea>"; };
       body = '<div class="card">'
         + q("Are there any weeds at the facility?", "weeds") + (g.weeds === true ? nt("weedsNote", "Where are the weeds?") : "")
@@ -570,7 +577,7 @@
         + cq("All dollies / moving-assist items in their proper place?", "dollies", "Yes", "No")
         + photoField("Interior photos (optional)", 0, cl.photos || [], "climate") + "</div>"; }
     if (sk === "Review") { var rows = [[0, "Weekly tasks", Object.values(r.tasks).filter(function (t) { return t.note && t.note.trim(); }).length + " of " + cfg.weeklyTasks.length + " answered"], [1, "Locks", cfg.lockoutAdd.length + " add · " + cfg.lockoutRemove.length + " remove"], [2, "Maintenance", cfg.maintenance.length + " unit(s)"], [3, "Recently vacated", cfg.vacated.length + " unit(s)"], [4, "Vacant", r.vacantConfirmed === false ? "Extra reported" : r.vacantConfirmed ? "Confirmed" : "—"], [5, "Auction", cfg.auction.length + " unit(s)"], [6, "Grounds", r.grounds.photos.length + " photos"]]; if (cfg.climateControlled) rows.push([7, "Climate control", "included"]);
-      body = '<div class="card"><p class="hint" style="margin:0">Review before sending. Tap a line to jump back.</p></div>' + rows.map(function (x) { return '<button class="review-row" data-a="step" data-i="' + x[0] + '" style="margin-top:10px"><span style="flex:1">' + x[1] + '</span><span class="v">' + x[2] + "</span>" + I("chevron-right") + "</button>"; }).join(""); }
+      body = '<div class="card"><p class="hint" style="margin:0">Review before sending. Tap a line to jump back.</p></div>' + rows.map(function (x) { return '<button class="review-row" data-a="step" data-i="' + x[0] + '" style="margin-top:10px"><span style="flex:1">' + x[1] + '</span><span class="v">' + x[2] + "</span>" + I("chevron-right") + "</button>"; }).join("") + '<div class="note" style="margin-top:14px;border:1px solid var(--alert);background:#FBEEEC;color:var(--alert);font-weight:600">' + I("alert-triangle") + " Are you sure? Once you submit this report you can't go back and change it.</div>"; }
 
     var all = allIssues(r, cfg, STEPS), last = S.step === STEPS.length - 1;
     if (last && all.length) body = issuesList("Finish these " + all.length + " item(s) before submitting", all, true) + body;
@@ -607,13 +614,17 @@
     if (cfg && S.secFac) { var sf = S.facilities.find(function (x) { return x.id === S.secFac; }); if (sf) { setPath(sf.config, cfg, v); saveSoon(function () { putFacility(sf); }); } return; }
     var cli = t.getAttribute("data-cli");
     if (cli && S.secFac) { var pr = cli.split("|"), sf2 = S.facilities.find(function (x) { return x.id === S.secFac; }); if (sf2) { var arr = getPath(sf2.config, pr[0]) || [], item = arr.find(function (z) { return z.id === pr[1]; }); if (item) { item[pr[2]] = v; saveSoon(function () { putFacility(sf2); }); } } return; }
+    if (t.getAttribute("data-newnote") !== null) { S.newReportNote = v; return; }
+    var rnote = t.getAttribute("data-rnote");
+    if (rnote) { var rr = S.reports.find(function (z) { return z.id === rnote; }); if (rr) { rr.note = v; saveSoon(function () { api("PUT", "/api/reports/" + rnote, { note: rr.note }); }); } return; }
     var note = t.getAttribute("data-note");
-    if (note && S.subsFid) { var fnn = S.facilities.find(function (x) { return x.id === S.subsFid; }); var nn = (fnn.config.adminNotes || []).find(function (z) { return z.id === note; }); if (nn) { nn.text = v; saveSoon(function () { putFacility(fnn); }); } return; }
+    if (note && S.newReportFac) { var fnn = S.facilities.find(function (x) { return x.id === S.newReportFac; }); var nn = (fnn.config.adminNotes || []).find(function (z) { return z.id === note; }); if (nn) { nn.text = v; saveSoon(function () { putFacility(fnn); }); } return; }
     var rp = t.getAttribute("data-resp");
     if (rp && S.resp) { setPath(S.resp, rp, v); }
   });
   document.addEventListener("change", function (ev) {
     var t = ev.target, day = t.getAttribute("data-day");
+    if (t.getAttribute("data-newfac") !== null) { S.newReportFac = t.value; render(); return; }
     if (day && S.teamId) { var w = S.users.find(function (x) { return x.id === S.teamId; }); var a = (w.assignments || []).find(function (x) { return x.facilityId === day; }); if (a) { a.checkInDay = t.value; putUser(w); } return; }
     var urole = t.getAttribute("data-usr");
     if (urole === "role" && (S.adminId || S.teamId)) { var uid2 = S.adminId || S.teamId, wr = S.users.find(function (x) { return x.id === uid2; }); wr.role = t.value; putUser(wr).then(render); return; }
@@ -697,35 +708,35 @@
     if (a === "setstatus") { var sfs = S.facilities.find(function (x) { return x.id === S.secFac; }); var item = (getPath(sfs.config, "maintenanceTracking") || []).find(function (z) { return z.id === id; }); if (item) { item.status = el.getAttribute("data-v"); putFacility(sfs); render(); } return; }
     if (a === "submitsite") { var sfsub = S.facilities.find(function (x) { return x.id === S.editId; }); flushSave(); api("PUT", "/api/facilities/" + sfsub.id, { name: sfsub.name, address: sfsub.address, config: sfsub.config, submit: true }).then(function (u) { sfsub.config.updatedAt = u.config.updatedAt; toast("Site check submitted — techs now see today's date."); render(); }).catch(function (e) { toast(e.message); }); return; }
 
-    /* reports */
-    if (a === "subs") { S.subsFid = id; S.subOpen = null; S.subStep = 0; api("GET", "/api/facilities/" + id + "/submissions").then(function (s) { S.subs = s; render(); }).catch(function (e) { toast(e.message); }); return; }
-    if (a === "backsubs") { S.subsFid = null; S.subOpen = null; S.subStep = 0; render(); return; }
-    if (a === "opensub") { S.subOpen = S.subs[+el.getAttribute("data-i")]; S.subStep = 0; render(); return; }
+    /* reports (admin) */
+    if (a === "sendreport") { var fid = S.newReportFac || (S.facilities[0] || {}).id; if (!fid) { toast("Add a facility first."); return; } api("POST", "/api/reports", { facilityId: fid, note: S.newReportNote || "" }).then(function () { S.newReportNote = ""; return reloadReports(); }).then(render).catch(function (e) { toast(e.message); }); return; }
+    if (a === "delreport") { if (!confirm("Delete this report? This can't be undone.")) return; api("DELETE", "/api/reports/" + id, {}).then(function () { if (S.subOpen && S.subOpen.id === id) { S.subOpen = null; S.subStep = 0; } return reloadReports(); }).then(render).catch(function (e) { toast(e.message); }); return; }
+    if (a === "openrep") { S.subOpen = S.reports.find(function (x) { return x.id === id; }); S.subStep = 0; render(); return; }
+    if (a === "noteadd") { var snf = S.newReportFac || (S.facilities[0] || {}).id; var fn = S.facilities.find(function (x) { return x.id === snf; }); if (!fn) return; if (!Array.isArray(fn.config.adminNotes)) fn.config.adminNotes = []; fn.config.adminNotes.push({ id: uid(), text: "" }); putFacility(fn); render(); return; }
+    if (a === "notedel") { var snf2 = S.newReportFac || (S.facilities[0] || {}).id; var fdl = S.facilities.find(function (x) { return x.id === snf2; }); if (!fdl) return; fdl.config.adminNotes = (fdl.config.adminNotes || []).filter(function (z) { return z.id !== id; }); putFacility(fdl); render(); return; }
     if (a === "backopen") { S.subOpen = null; S.subStep = 0; render(); return; }
     if (a === "subnext") { S.subStep++; render(); return; }
     if (a === "subback") { S.subStep--; render(); return; }
     if (a === "substep") { S.subStep = +el.getAttribute("data-i"); render(); return; }
     if (a === "markreviewed") {
       var sid = S.subOpen.id; S.busy = true; render();
-      api("POST", "/api/submissions/" + sid + "/review", {}).then(function (r) {
+      api("POST", "/api/reports/" + sid + "/review", {}).then(function (r) {
         S.busy = false; S.subOpen.reviewed = true; S.subOpen.reviewedAt = r.reviewedAt; S.subOpen.reviewedBy = r.reviewedBy;
-        var it = S.subs.find(function (x) { return x.id === sid; }); if (it) { it.reviewed = true; it.reviewedAt = r.reviewedAt; it.reviewedBy = r.reviewedBy; }
+        var it = S.reports.find(function (x) { return x.id === sid; }); if (it) { it.reviewed = true; it.reviewedAt = r.reviewedAt; it.reviewedBy = r.reviewedBy; }
         toast("Report marked as reviewed."); S.subOpen = null; S.subStep = 0; render();
       }).catch(function (e) { S.busy = false; toast(e.message); render(); });
       return;
     }
-    if (a === "noteadd") { var fn = S.facilities.find(function (x) { return x.id === S.subsFid; }); if (!Array.isArray(fn.config.adminNotes)) fn.config.adminNotes = []; fn.config.adminNotes.push({ id: uid(), text: "" }); putFacility(fn); render(); return; }
-    if (a === "notedel") { var fd = S.facilities.find(function (x) { return x.id === S.subsFid; }); fd.config.adminNotes = (fd.config.adminNotes || []).filter(function (z) { return z.id !== id; }); putFacility(fd); render(); return; }
 
     /* worker wizard */
-    if (a === "pick") { S.fid = id; S.tried = false; var dr = S.drafts && S.drafts[id]; if (dr) { api("GET", "/api/drafts/" + id).then(function (d) { S.resp = d && d.data ? Object.assign(blankResp(), d.data) : blankResp(); S.step = (d && d.step) || 0; S.done = false; render(); }).catch(function () { S.resp = blankResp(); S.step = 0; S.done = false; render(); }); } else { S.resp = blankResp(); S.step = 0; S.done = false; render(); } return; }
     if (a === "step") { S.step = +el.getAttribute("data-i"); S.tried = false; saveDraft(); render(); return; }
     if (a === "fixstep") { S.step = +el.getAttribute("data-i"); S.tried = true; render(); return; }
     if (a === "next") { if (currentIssues().length) { S.tried = true; render(); return; } S.step++; S.tried = false; saveDraft(); render(); return; }
     if (a === "back") { S.step--; S.tried = false; saveDraft(); render(); return; }
-    if (a === "home") { saveDraft(); S.fid = null; S.resp = null; S.tried = false; render(); return; }
-    if (a === "saveexit") { saveDraft(); toast("Draft saved — pick the facility again any time to resume."); S.fid = null; S.resp = null; S.tried = false; render(); return; }
-    if (a === "restart") { S.fid = null; S.resp = null; S.done = false; S.tried = false; render(); return; }
+    if (a === "openreport") { var rp = S.myReports.find(function (x) { return x.id === id; }); if (!rp) return; S.report = rp; S.fid = rp.facilityId; S.tried = false; var dr = S.drafts && S.drafts[rp.id]; if (dr) { api("GET", "/api/drafts/" + rp.id).then(function (d) { S.resp = d && d.data ? Object.assign(blankResp(), d.data) : blankResp(); S.step = (d && d.step) || 0; S.done = false; render(); }).catch(function () { S.resp = blankResp(); S.step = 0; S.done = false; render(); }); } else { S.resp = blankResp(); S.step = 0; S.done = false; render(); } return; }
+    if (a === "home") { saveDraft(); S.fid = null; S.report = null; S.resp = null; S.tried = false; render(); return; }
+    if (a === "saveexit") { saveDraft(); toast("Draft saved — open the report again any time to resume."); S.fid = null; S.report = null; S.resp = null; S.tried = false; render(); return; }
+    if (a === "restart") { S.fid = null; S.report = null; S.resp = null; S.done = false; S.tried = false; render(); return; }
     if (a === "chk") { var p = el.getAttribute("data-p"); setPath(S.resp, p, !getPath(S.resp, p)); render(); return; }
     if (a === "yn") { setPath(S.resp, el.getAttribute("data-p"), el.getAttribute("data-v") === "1"); render(); return; }
     if (a === "cond") { var cur = S.resp.vacated[id] || {}; cur.status = el.getAttribute("data-v"); S.resp.vacated[id] = cur; render(); return; }
@@ -734,9 +745,12 @@
     if (a === "submit") {
       var fsub = S.facilities.find(function (x) { return x.id === S.fid; });
       if (allIssues(S.resp, fsub.config, stepsFor(fsub)).length) { S.tried = true; render(); return; }
+      if (!confirm("Are you sure? Once you submit this report you can't go back and change it.")) return;
       S.busy = true; render();
-      api("POST", "/api/submissions", { facilityId: S.fid, data: S.resp }).then(function () { S.busy = false; S.done = true; if (S.drafts) delete S.drafts[S.fid]; api("DELETE", "/api/drafts/" + S.fid); render(); })
-        .catch(function (e) { S.busy = false; toast(e.message); render(); });
+      api("POST", "/api/reports/" + S.report.id + "/submit", { data: S.resp }).then(function () {
+        S.busy = false; S.done = true; S.myReports = S.myReports.filter(function (x) { return x.id !== S.report.id; });
+        if (S.drafts) delete S.drafts[S.report.id]; api("DELETE", "/api/drafts/" + S.report.id); render();
+      }).catch(function (e) { S.busy = false; toast(e.message); render(); });
       return;
     }
   });

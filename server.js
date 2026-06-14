@@ -11,7 +11,11 @@ const jwt = require("jsonwebtoken");
 
 const PORT = process.env.PORT || 3000;
 const JWT_SECRET = process.env.JWT_SECRET || "change-this-secret-before-going-live";
-const DATA_FILE = path.join(__dirname, "data.json");
+// On a host, set DATA_DIR to a permanent disk (e.g. /data) so reports & photos survive restarts.
+const DATA_DIR = process.env.DATA_DIR || __dirname;
+const DATA_FILE = path.join(DATA_DIR, "data.json");
+if (DATA_DIR !== __dirname && !fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
+if (JWT_SECRET === "change-this-secret-before-going-live") console.warn("WARNING: JWT_SECRET is not set. Set it before real use — logins are not secure with the default.");
 
 /* ---------------- tiny JSON datastore ---------------- */
 const uid = () => Math.random().toString(36).slice(2, 10);
@@ -44,12 +48,14 @@ function seed() {
     ],
     submissions: [],
     drafts: [],
+    reports: [],
   };
 }
 
 if (fs.existsSync(DATA_FILE)) {
   db = JSON.parse(fs.readFileSync(DATA_FILE, "utf8"));
   if (!db.drafts) db.drafts = [];
+  if (!db.reports) db.reports = [];
 } else {
   db = seed(); persist();
   console.log("Created data.json with demo accounts: owner/owner123 (super admin), manager/manager123 (admin), marcus/marcus123, dana/dana123 (workers).");
@@ -96,6 +102,8 @@ const usernameTaken = (username, exceptId) =>
 
 /* ---------------- app ---------------- */
 const app = express();
+app.set("trust proxy", 1);
+app.get("/health", (req, res) => res.json({ ok: true }));
 app.use(express.json({ limit: "30mb" })); // generous for base64 photos in submissions
 
 /* auth */
@@ -222,6 +230,45 @@ app.put("/api/drafts/:facilityId", auth, (req, res) => {
   persist(); res.json({ ok: true, savedAt: d.savedAt });
 });
 app.delete("/api/drafts/:facilityId", auth, (req, res) => { db.drafts = db.drafts.filter((x) => !(x.userId === req.user.id && x.facilityId === req.params.facilityId)); persist(); res.json({ ok: true }); });
+
+/* report requests — admin sends a report to be filled out; the facility's techs fill it in */
+app.get("/api/reports", auth, adminOrAbove, (req, res) => res.json(db.reports.slice().sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0))));
+app.post("/api/reports", auth, adminOrAbove, (req, res) => {
+  const f = db.facilities.find((x) => x.id === req.body.facilityId);
+  if (!f) return res.status(400).json({ error: "Pick a facility." });
+  const r = { id: uid(), facilityId: f.id, note: req.body.note || "", status: "outstanding", createdAt: Date.now(), createdBy: req.user.name };
+  db.reports.push(r); persist(); res.json(r);
+});
+app.put("/api/reports/:id", auth, adminOrAbove, (req, res) => {
+  const r = db.reports.find((x) => x.id === req.params.id);
+  if (!r) return res.status(404).json({ error: "Report not found." });
+  if (typeof req.body.note === "string") r.note = req.body.note;
+  if (req.body.facilityId && db.facilities.some((f) => f.id === req.body.facilityId)) r.facilityId = req.body.facilityId;
+  persist(); res.json(r);
+});
+app.delete("/api/reports/:id", auth, adminOrAbove, (req, res) => { db.reports = db.reports.filter((x) => x.id !== req.params.id); persist(); res.json({ ok: true }); });
+app.post("/api/reports/:id/review", auth, adminOrAbove, (req, res) => {
+  const r = db.reports.find((x) => x.id === req.params.id);
+  if (!r) return res.status(404).json({ error: "Report not found." });
+  r.reviewed = true; r.reviewedAt = Date.now(); r.reviewedBy = req.user.name;
+  persist(); res.json({ ok: true, reviewedAt: r.reviewedAt, reviewedBy: r.reviewedBy });
+});
+/* worker: outstanding reports for the facilities I'm assigned to */
+app.get("/api/reports/mine", auth, (req, res) => {
+  const mine = (req.user.assignments || []).map((a) => a.facilityId);
+  res.json(db.reports.filter((r) => r.status === "outstanding" && mine.includes(r.facilityId)).map((r) => {
+    const f = db.facilities.find((x) => x.id === r.facilityId);
+    return { id: r.id, facilityId: r.facilityId, facilityName: f ? f.name : "Facility", note: r.note, createdAt: r.createdAt };
+  }));
+});
+app.post("/api/reports/:id/submit", auth, (req, res) => {
+  const r = db.reports.find((x) => x.id === req.params.id);
+  if (!r) return res.status(404).json({ error: "Report not found." });
+  const assigned = (req.user.assignments || []).some((a) => a.facilityId === r.facilityId);
+  if (req.user.role === "worker" && !assigned) return res.status(403).json({ error: "This report isn't assigned to you." });
+  r.status = "completed"; r.data = req.body.data || {}; r.submittedAt = Date.now(); r.workerName = req.user.name;
+  persist(); res.json({ ok: true });
+});
 
 /* static UI */
 app.use(express.static(path.join(__dirname, "public")));
